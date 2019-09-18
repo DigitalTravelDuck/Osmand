@@ -79,8 +79,8 @@ public class BinaryRoutePlanner {
 	    CountDownLatch doneSignal = new CountDownLatch(1);
 	    Semaphore pauseForCheck = new Semaphore(1);
 		
-	    OneWayRouteSearch forwardSearch = new OneWayRouteSearch(true, finalSegment, ctx, start, end, recalculationEnd, startSignal, doneSignal, pauseForCheck);
-	    OneWayRouteSearch backwardSearch = new OneWayRouteSearch(false, finalSegment, ctx, start, end, recalculationEnd, startSignal, doneSignal, pauseForCheck);
+	    OneWayRouteSearch forwardSearch = new OneWayRouteSearch(false, finalSegment, ctx, start, end, recalculationEnd, startSignal, doneSignal, pauseForCheck);
+	    OneWayRouteSearch backwardSearch = new OneWayRouteSearch(true, finalSegment, ctx, start, end, recalculationEnd, startSignal, doneSignal, pauseForCheck);
 	    Thread forwardThread = new Thread(forwardSearch);
 	    Thread backwardThread = new Thread(backwardSearch);
 	    forwardThread.start();
@@ -91,12 +91,15 @@ public class BinaryRoutePlanner {
 	    startSignal.countDown();
 	    doneSignal.await();
 	    
-	    for (int i = 0; i < threadCount; i++) {
-	    	if (searchList.get(i).isCompleted()) {
-	    		log.debug(String.format("Thread %d complete", searchList.get(i).id));
-	    		finalSegment = searchList.get(i).finalSegment;
-	    	}
-	    }
+    	if (forwardSearch.isCompleted()) {
+    		System.out.println("Forward search complete");
+    		finalSegment = forwardSearch.finalSegment;
+    	}
+//    	if (backwardSearch.isCompleted()) {
+//    		System.out.println("Backward search complete");
+//    		finalSegment = backwardSearch.finalSegment;
+//    	}
+	    
 	    pauseForCheck.release(threadCount - 1);
 	    return finalSegment;
 	}
@@ -126,6 +129,8 @@ public class BinaryRoutePlanner {
 		RoutingContext ctx;
 		PriorityQueue<RouteSegment> graphSegments;
 		
+		long calcTime;
+		
 		public OneWayRouteSearch(
 				boolean onlyForward, 
 				FinalRouteSegment finalSegment, 
@@ -153,37 +158,45 @@ public class BinaryRoutePlanner {
 			} else {
 				id = 1;
 			}
-			
-			
+						
 			// measure time
 			ctx.timeToLoad = 0;
 			ctx.memoryOverhead = 1000;
 			ctx.visitedSegments = 0;
+			
 		}
 		
 		@Override
 		public void run() {
-			initQueuesWithStartEnd(ctx, start, end, recalculationEnd, graphDirectSegments, graphReverseSegments, 
-					visitedDirectSegments, visitedOppositeSegments, onlyForward);
-			forwardSearch = true;
-			graphSegments = graphDirectSegments;
+
+
 			try {
 				startSignal.await();
+				calcTime = System.nanoTime();
 				
+				
+				initQueuesWithStartEnd(ctx, start, end, recalculationEnd, graphDirectSegments, graphReverseSegments, 
+						visitedDirectSegments, visitedOppositeSegments, onlyForward);
+				forwardSearch = true;
+				graphSegments = graphDirectSegments;
 				
 				while (!graphSegments.isEmpty()) {
 					RouteSegment segment = graphSegments.poll();
  
 					if (segment instanceof FinalRouteSegment) {
 						finalSegment = (FinalRouteSegment) segment;
-
+						System.out.println(String.format("Route calc time = %f", (System.nanoTime() - calcTime)/ 1e6));
 						pauseForCheck.acquire();
 						completed = true;
 						doneSignal.countDown();
 						break;
 					}
-
-					ctx.visitedSegments ++;
+//					if (onlyForward) {
+//						ctx.visitedSegments1 ++;	
+//					} else {
+//						ctx.visitedSegments2 ++;
+//					}
+					
 					if (forwardSearch) {
 						boolean doNotAddIntersections = onlyBackward;
 							try {
@@ -236,8 +249,8 @@ public class BinaryRoutePlanner {
 			}
 			
 			
-			ctx.visitedSegments = visitedDirectSegments.size() + visitedOppositeSegments.size();
-			printDebugMemoryInformation(ctx, graphDirectSegments, graphReverseSegments, visitedDirectSegments, visitedOppositeSegments);
+			ctx.visitedSegments += visitedDirectSegments.size() + visitedOppositeSegments.size();
+			printDebugMemoryInformation(ctx, graphDirectSegments, graphReverseSegments, visitedDirectSegments, visitedOppositeSegments, onlyForward);
 			
 			
 		}
@@ -439,7 +452,7 @@ public class BinaryRoutePlanner {
 	}
 	
 	public void printDebugMemoryInformation(RoutingContext ctx, PriorityQueue<RouteSegment> graphDirectSegments, PriorityQueue<RouteSegment> graphReverseSegments, 
-			TLongObjectHashMap<RouteSegment> visitedDirectSegments,TLongObjectHashMap<RouteSegment> visitedOppositeSegments) {
+			TLongObjectHashMap<RouteSegment> visitedDirectSegments,TLongObjectHashMap<RouteSegment> visitedOppositeSegments, boolean onlyForward) {
 		printInfo("Time to calculate : " + (System.nanoTime() - ctx.timeToCalculate) / 1e6 + 
 				", time to load : " + ctx.timeToLoad / 1e6 + ", time to load headers : " + ctx.timeToLoadHeaders / 1e6 + 
 				", time to calc dev : " + ctx.timeNanoToCalcDeviation / 1e6);

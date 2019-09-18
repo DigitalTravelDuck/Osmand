@@ -101,6 +101,7 @@ public class RoutingContext {
 	public float routingTime = 0;
 	public int loadedTiles = 0;
 	public int visitedSegments = 0;
+
 	public int relaxedSegments = 0;
 	// callback of processing segments
 	RouteSegmentVisitor visitor = null;
