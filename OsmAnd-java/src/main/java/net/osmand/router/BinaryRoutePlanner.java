@@ -32,7 +32,8 @@ public class BinaryRoutePlanner {
 
 	private static final int ROUTE_POINTS = 11;
 	private static final boolean TRACE_ROUTING = false;
-
+	
+	private static boolean calcThreadsAlive = false;
 
 	public static double squareRootDist(int x1, int y1, int x2, int y2) {
 		return MapUtils.squareRootDist31(x1, y1, x2, y2);
@@ -79,15 +80,15 @@ public class BinaryRoutePlanner {
 	    CountDownLatch doneSignal = new CountDownLatch(1);
 	    Semaphore pauseForCheck = new Semaphore(1);
 		
-	    OneWayRouteSearch forwardSearch = new OneWayRouteSearch(false, finalSegment, ctx, start, end, recalculationEnd, startSignal, doneSignal, pauseForCheck);
-	    OneWayRouteSearch backwardSearch = new OneWayRouteSearch(true, finalSegment, ctx, start, end, recalculationEnd, startSignal, doneSignal, pauseForCheck);
+	    OneWayRouteSearch forwardSearch = new OneWayRouteSearch(true, finalSegment, ctx, start, end, recalculationEnd, startSignal, doneSignal, pauseForCheck);
+	    OneWayRouteSearch backwardSearch = new OneWayRouteSearch(false, finalSegment, ctx, start, end, recalculationEnd, startSignal, doneSignal, pauseForCheck);
 	    Thread forwardThread = new Thread(forwardSearch);
 	    Thread backwardThread = new Thread(backwardSearch);
 	    forwardThread.start();
 	    backwardThread.start();
 	    searchList.add(forwardSearch);
 	    searchList.add(backwardSearch);
-	    
+	    calcThreadsAlive = true;
 	    startSignal.countDown();
 	    doneSignal.await();
 	    
@@ -95,12 +96,13 @@ public class BinaryRoutePlanner {
     		System.out.println("Forward search complete");
     		finalSegment = forwardSearch.finalSegment;
     	}
-//    	if (backwardSearch.isCompleted()) {
-//    		System.out.println("Backward search complete");
-//    		finalSegment = backwardSearch.finalSegment;
-//    	}
-	    
-	    pauseForCheck.release(threadCount - 1);
+    	if (backwardSearch.isCompleted()) {
+    		System.out.println("Backward search complete");
+    		finalSegment = backwardSearch.finalSegment;
+    	}
+    	
+	    pauseForCheck.release(threadCount-1);
+	    calcThreadsAlive = false;
 	    return finalSegment;
 	}
 	
@@ -238,9 +240,9 @@ public class BinaryRoutePlanner {
 						graphSegments = graphReverseSegments;
 					}
 					// check if interrupted
-					if (ctx.calculationProgress != null && ctx.calculationProgress.isCancelled) {
-						throw new InterruptedException("Route calculation interrupted");
-					}
+//					if (ctx.calculationProgress != null && ctx.calculationProgress.isCancelled) {
+//						throw new InterruptedException("Route calculation interrupted");
+//					}
 				}
 				
 			} catch (InterruptedException e1) {
@@ -296,7 +298,7 @@ public class BinaryRoutePlanner {
 						break;
 					}
 				}
-				if (graphSegments.isEmpty()) {
+				if (graphSegments.isEmpty() && calcThreadsAlive) {
 					throw new IllegalArgumentException(msg);
 				}
 			}
@@ -497,7 +499,7 @@ public class BinaryRoutePlanner {
 		boolean[] processFurther = new boolean[1];
 		RouteSegment previous = segment;
 		boolean dir = segment.isPositive();
-		while (directionAllowed) {
+		while (directionAllowed && calcThreadsAlive) {
 			// mark previous interval as visited and move to next intersection
 			short prevInd = segmentPoint;
 			if (dir) {
