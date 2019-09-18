@@ -466,7 +466,7 @@ public class RoutingContext {
 	}
 	
 	@SuppressWarnings("unused")
-	private long getRoutingTile(int x31, int y31, int memoryLimit, int loadOptions){
+	private synchronized long getRoutingTile(int x31, int y31, int memoryLimit, int loadOptions){
 //		long now = System.nanoTime();
 		long xloc = x31 >> (31 - config.ZOOM_TO_LOAD_TILES);
 		long yloc = y31 >> (31 - config.ZOOM_TO_LOAD_TILES);

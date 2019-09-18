@@ -4,10 +4,13 @@ import gnu.trove.map.hash.TLongObjectHashMap;
 
 import java.io.IOException;
 import java.text.MessageFormat;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.PriorityQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Semaphore;
 
 import net.osmand.PlatformUtil;
 import net.osmand.binary.RouteDataObject;
@@ -67,107 +70,184 @@ public class BinaryRoutePlanner {
 	@SuppressWarnings("unused")
 	FinalRouteSegment searchRouteInternal(final RoutingContext ctx, RouteSegmentPoint start, RouteSegmentPoint end,
 			RouteSegment recalculationEnd ) throws InterruptedException, IOException {
-		// measure time
-		ctx.timeToLoad = 0;
-		ctx.memoryOverhead = 1000;
-		ctx.visitedSegments = 0;
-
-		// Initializing priority queue to visit way segments 
-		Comparator<RouteSegment> nonHeuristicSegmentsComparator = new NonHeuristicSegmentsComparator();
-		PriorityQueue<RouteSegment> graphDirectSegments = new PriorityQueue<RouteSegment>(50, new SegmentsComparator(ctx));
-		PriorityQueue<RouteSegment> graphReverseSegments = new PriorityQueue<RouteSegment>(50, new SegmentsComparator(ctx));
-
-		// Set to not visit one segment twice (stores road.id << X + segmentStart)
-		TLongObjectHashMap<RouteSegment> visitedDirectSegments = new TLongObjectHashMap<RouteSegment>();
-		TLongObjectHashMap<RouteSegment> visitedOppositeSegments = new TLongObjectHashMap<RouteSegment>();
-
-		initQueuesWithStartEnd(ctx, start, end, recalculationEnd, graphDirectSegments, graphReverseSegments, 
-				visitedDirectSegments, visitedOppositeSegments);
-
-		// Extract & analyze segment with min(f(x)) from queue while final segment is not found
-		boolean forwardSearch = true;
-
-		PriorityQueue<RouteSegment> graphSegments = graphDirectSegments;
 
 		FinalRouteSegment finalSegment = null;
-		boolean onlyBackward = ctx.getPlanRoadDirection() < 0;
-		boolean onlyForward = ctx.getPlanRoadDirection() > 0;
-		while (!graphSegments.isEmpty()) {
-			RouteSegment segment = graphSegments.poll();
-			// use accumulative approach
-			ctx.memoryOverhead = (visitedDirectSegments.size() + visitedOppositeSegments.size()) * STANDARD_ROAD_VISITED_OVERHEAD +
-					(graphDirectSegments.size() +
-					graphReverseSegments.size()) * STANDARD_ROAD_IN_QUEUE_OVERHEAD;
+
+		int threadCount = 2;
+		List<OneWayRouteSearch> searchList = new ArrayList<>(threadCount);
+	    CountDownLatch startSignal = new CountDownLatch(1);
+	    CountDownLatch doneSignal = new CountDownLatch(1);
+	    Semaphore pauseForCheck = new Semaphore(1);
+		
+	    OneWayRouteSearch forwardSearch = new OneWayRouteSearch(true, finalSegment, ctx, start, end, recalculationEnd, startSignal, doneSignal, pauseForCheck);
+	    OneWayRouteSearch backwardSearch = new OneWayRouteSearch(false, finalSegment, ctx, start, end, recalculationEnd, startSignal, doneSignal, pauseForCheck);
+	    Thread forwardThread = new Thread(forwardSearch);
+	    Thread backwardThread = new Thread(backwardSearch);
+	    forwardThread.start();
+	    backwardThread.start();
+	    searchList.add(forwardSearch);
+	    searchList.add(backwardSearch);
+	    
+	    startSignal.countDown();
+	    doneSignal.await();
+	    
+	    for (int i = 0; i < threadCount; i++) {
+	    	if (searchList.get(i).isCompleted()) {
+	    		log.debug(String.format("Thread %d complete", searchList.get(i).id));
+	    		finalSegment = searchList.get(i).finalSegment;
+	    	}
+	    }
+	    pauseForCheck.release(threadCount - 1);
+	    return finalSegment;
+	}
+	
+	
+	private class OneWayRouteSearch implements Runnable {
+		
+		private final CountDownLatch startSignal;
+		private final CountDownLatch doneSignal;
+		private final Semaphore pauseForCheck;
+		private final int id;
+		private boolean completed = false;
+		
+		
+		final boolean onlyForward;
+		final boolean onlyBackward;
+		boolean forwardSearch;
+		RouteSegmentPoint start; 
+		RouteSegmentPoint end;
+		RouteSegment recalculationEnd;
+		
+		FinalRouteSegment finalSegment;
+		PriorityQueue<RouteSegment> graphDirectSegments;
+		PriorityQueue<RouteSegment> graphReverseSegments;
+		TLongObjectHashMap<RouteSegment> visitedDirectSegments;
+		TLongObjectHashMap<RouteSegment> visitedOppositeSegments;
+		RoutingContext ctx;
+		PriorityQueue<RouteSegment> graphSegments;
+		
+		public OneWayRouteSearch(
+				boolean onlyForward, 
+				FinalRouteSegment finalSegment, 
+				RoutingContext ctx,  
+				RouteSegmentPoint start, RouteSegmentPoint end,
+				RouteSegment recalculationEnd,
+				CountDownLatch startSignal, CountDownLatch doneSignal, Semaphore pauseForCheck
+				) {
+			this.onlyForward = onlyForward ? true : false;
+			this.onlyBackward = onlyForward ? false : true;
+			this.finalSegment = finalSegment;
+			this.ctx = ctx;
+			this.start  = start;
+			this.end = end;
+			this.recalculationEnd = recalculationEnd;
+			this.graphDirectSegments = new PriorityQueue<RouteSegment>(50, new SegmentsComparator(ctx));
+			this.graphReverseSegments = new PriorityQueue<RouteSegment>(50, new SegmentsComparator(ctx));
+			this.visitedDirectSegments = new TLongObjectHashMap<RouteSegment>();
+			this.visitedOppositeSegments = new TLongObjectHashMap<RouteSegment>();
+			this.startSignal = startSignal;
+			this.doneSignal = doneSignal;
+			this.pauseForCheck = pauseForCheck;
+			if (onlyForward) {
+				id = 0;
+			} else {
+				id = 1;
+			}
 			
-			if (TRACE_ROUTING) {
-				printRoad(">", segment, !forwardSearch);
-			}
-//			if(segment.getParentRoute() != null)
-//			System.out.println(segment.getRoad().getId() + " - " + segment.getParentRoute().getRoad().getId());
-			if (segment instanceof FinalRouteSegment) {
-				if (RoutingContext.SHOW_GC_SIZE) {
-					log.warn("Estimated overhead " + (ctx.memoryOverhead / (1 << 20)) + " mb");
-					printMemoryConsumption("Memory occupied after calculation : ");
-				}
-				finalSegment = (FinalRouteSegment) segment;
-				if (TRACE_ROUTING) {
-					println("Final segment found");
-				}
-				break;
-			}
-			if (ctx.memoryOverhead > ctx.config.memoryLimitation * 0.95 && RoutingContext.SHOW_GC_SIZE) {
-				printMemoryConsumption("Memory occupied before exception : ");
-			}
-			if (ctx.memoryOverhead > ctx.config.memoryLimitation * 0.95) {
-				throw new IllegalStateException("There is no enough memory " + ctx.config.memoryLimitation / (1 << 20) + " Mb");
-			}
-			ctx.visitedSegments ++;
-			if (forwardSearch) {
-				boolean doNotAddIntersections = onlyBackward;
-				processRouteSegment(ctx, false, graphDirectSegments, visitedDirectSegments,
-						segment, visitedOppositeSegments, doNotAddIntersections);
-			} else {
-				boolean doNotAddIntersections = onlyForward;
-				processRouteSegment(ctx, true, graphReverseSegments, visitedOppositeSegments, segment,
-						visitedDirectSegments, doNotAddIntersections);
-			}
-			updateCalculationProgress(ctx, graphDirectSegments, graphReverseSegments);
-
-			checkIfGraphIsEmpty(ctx, ctx.getPlanRoadDirection() <= 0, graphReverseSegments, end, visitedOppositeSegments,
-					"Route is not found to selected target point.");
-			checkIfGraphIsEmpty(ctx, ctx.getPlanRoadDirection() >= 0, graphDirectSegments, start, visitedDirectSegments,
-					"Route is not found from selected start point.");
-			if (ctx.planRouteIn2Directions()) {
-				forwardSearch = (nonHeuristicSegmentsComparator.compare(graphDirectSegments.peek(), graphReverseSegments.peek()) < 0);
-//				if (graphDirectSegments.size() * 2 > graphReverseSegments.size()) {
-//					forwardSearch = false;
-//				} else if (graphDirectSegments.size() < 2 * graphReverseSegments.size()) {
-//					forwardSearch = true;
-//				}
-			} else {
-				// different strategy : use onedirectional graph
-				forwardSearch = onlyForward;
-				if (onlyBackward && !graphDirectSegments.isEmpty()) {
-					forwardSearch = true;
-				}
-				if (onlyForward && !graphReverseSegments.isEmpty()) {
-					forwardSearch = false;
-				}
-			}
-
-			if (forwardSearch) {
-				graphSegments = graphDirectSegments;
-			} else {
-				graphSegments = graphReverseSegments;
-			}
-			// check if interrupted
-			if (ctx.calculationProgress != null && ctx.calculationProgress.isCancelled) {
-				throw new InterruptedException("Route calculation interrupted");
-			}
+			
+			// measure time
+			ctx.timeToLoad = 0;
+			ctx.memoryOverhead = 1000;
+			ctx.visitedSegments = 0;
 		}
-		ctx.visitedSegments = visitedDirectSegments.size() + visitedOppositeSegments.size();
-		printDebugMemoryInformation(ctx, graphDirectSegments, graphReverseSegments, visitedDirectSegments, visitedOppositeSegments);
-		return finalSegment;
+		
+		@Override
+		public void run() {
+			initQueuesWithStartEnd(ctx, start, end, recalculationEnd, graphDirectSegments, graphReverseSegments, 
+					visitedDirectSegments, visitedOppositeSegments, onlyForward);
+			forwardSearch = true;
+			graphSegments = graphDirectSegments;
+			try {
+				startSignal.await();
+				
+				
+				while (!graphSegments.isEmpty()) {
+					RouteSegment segment = graphSegments.poll();
+ 
+					if (segment instanceof FinalRouteSegment) {
+						finalSegment = (FinalRouteSegment) segment;
+
+						pauseForCheck.acquire();
+						completed = true;
+						doneSignal.countDown();
+						break;
+					}
+
+					ctx.visitedSegments ++;
+					if (forwardSearch) {
+						boolean doNotAddIntersections = onlyBackward;
+							try {
+								processRouteSegment(ctx, false, graphDirectSegments, visitedDirectSegments,
+										segment, visitedOppositeSegments, doNotAddIntersections);
+							} catch (IOException e) {
+								// TODO Auto-generated catch block
+								e.printStackTrace();
+							}
+						
+					} else {
+						boolean doNotAddIntersections = onlyForward;
+						try {
+							processRouteSegment(ctx, true, graphReverseSegments, visitedOppositeSegments, segment,
+									visitedDirectSegments, doNotAddIntersections);
+						} catch (IOException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						}
+					}
+					updateCalculationProgress(ctx, graphDirectSegments, graphReverseSegments);
+
+					checkIfGraphIsEmpty(ctx, onlyBackward, graphReverseSegments, end, visitedOppositeSegments,
+							"Route is not found to selected target point.");
+					checkIfGraphIsEmpty(ctx, onlyForward, graphDirectSegments, start, visitedDirectSegments,
+							"Route is not found from selected start point.");
+
+					forwardSearch = onlyForward;
+					if (onlyBackward && !graphDirectSegments.isEmpty()) {
+						forwardSearch = true;
+					}
+					if (onlyForward && !graphReverseSegments.isEmpty()) {
+						forwardSearch = false;
+					}
+
+					if (forwardSearch) {
+						graphSegments = graphDirectSegments;
+					} else {
+						graphSegments = graphReverseSegments;
+					}
+					// check if interrupted
+					if (ctx.calculationProgress != null && ctx.calculationProgress.isCancelled) {
+						throw new InterruptedException("Route calculation interrupted");
+					}
+				}
+				
+			} catch (InterruptedException e1) {
+				// TODO Auto-generated catch block
+				e1.printStackTrace();
+			}
+			
+			
+			ctx.visitedSegments = visitedDirectSegments.size() + visitedOppositeSegments.size();
+			printDebugMemoryInformation(ctx, graphDirectSegments, graphReverseSegments, visitedDirectSegments, visitedOppositeSegments);
+			
+			
+		}
+		
+		boolean isCompleted() {
+			return completed;
+		}
+		
+		
+		
 	}
 
 	protected void checkIfGraphIsEmpty(final RoutingContext ctx, boolean allowDirection,
@@ -242,56 +322,47 @@ public class BinaryRoutePlanner {
 
 	private void initQueuesWithStartEnd(final RoutingContext ctx, RouteSegment start, RouteSegment end,
 			RouteSegment recalculationEnd, PriorityQueue<RouteSegment> graphDirectSegments, PriorityQueue<RouteSegment> graphReverseSegments, 
-			TLongObjectHashMap<RouteSegment> visitedDirectSegments, TLongObjectHashMap<RouteSegment> visitedOppositeSegments) {
-		RouteSegment startPos = initRouteSegment(ctx, start, true);
-		RouteSegment startNeg = initRouteSegment(ctx, start, false);
-		RouteSegment endPos = initRouteSegment(ctx, end, true);
-		RouteSegment endNeg = initRouteSegment(ctx, end, false);
-		// for start : f(start) = g(start) + h(start) = 0 + h(start) = h(start)
+			TLongObjectHashMap<RouteSegment> visitedDirectSegments, TLongObjectHashMap<RouteSegment> visitedOppositeSegments, boolean forwardSearch) {
+		RouteSegment startSegment;
+		RouteSegment endSegment; 
+		if (forwardSearch) {
+			startSegment = initRouteSegment(ctx, start, true);	
+			endSegment = initRouteSegment(ctx, end, true);
+		} else {
+			startSegment = initRouteSegment(ctx, start, false);	
+			endSegment = initRouteSegment(ctx, end, false);
+		}
+		
 		if (ctx.config.initialDirection != null) {
 			// mark here as positive for further check
 			double plusDir = start.getRoad().directionRoute(start.getSegmentStart(), true);
 			double diff = plusDir - ctx.config.initialDirection;
 			if (Math.abs(MapUtils.alignAngleDifference(diff)) <= Math.PI / 3) {
-				if (startNeg != null) {
-					startNeg.distanceFromStart += 500;
+				if (startSegment != null) {
+					startSegment.distanceFromStart += 500;
 				}
-			} else if (Math.abs(MapUtils.alignAngleDifference(diff - Math.PI)) <= Math.PI / 3) {
-				if (startPos != null) {
-					startPos.distanceFromStart += 500;
-				}
-			}
+			} 
 		}
 		if (recalculationEnd != null) {
 			ctx.targetX = recalculationEnd.getRoad().getPoint31XTile(recalculationEnd.getSegmentStart());
 			ctx.targetY = recalculationEnd.getRoad().getPoint31YTile(recalculationEnd.getSegmentStart());
 		}
 		float estimatedDistance = (float) estimatedDistance(ctx, ctx.targetX, ctx.targetY, ctx.startX, ctx.startY);
-		if (startPos != null) {
-			startPos.distanceToEnd = estimatedDistance;
-			graphDirectSegments.add(startPos);
-		}
-		if (startNeg != null) {
-			startNeg.distanceToEnd = estimatedDistance;
-			graphDirectSegments.add(startNeg);
+		if (startSegment != null) {
+			startSegment.distanceToEnd = estimatedDistance;
+			graphDirectSegments.add(startSegment);
 		}
 		if (recalculationEnd != null) {
 			graphReverseSegments.add(recalculationEnd);
 		} else {
-			if (endPos != null) {
-				endPos.distanceToEnd = estimatedDistance;
-				graphReverseSegments.add(endPos);
-			}
-			if (endNeg != null) {
-				endNeg.distanceToEnd = estimatedDistance;
-				graphReverseSegments.add(endNeg);
+			if (endSegment != null) {
+				endSegment.distanceToEnd = estimatedDistance;
+				graphReverseSegments.add(endSegment);
 			}
 		}
 		if (TRACE_ROUTING) {
-			printRoad("Initial segment start positive: ", startPos, false);
-			printRoad("Initial segment start negative: ", startNeg, false);
-			printRoad("Initial segment end positive: ", endPos, false);
-			printRoad("Initial segment end negative: ", endNeg, false);
+			printRoad("Initial segment start: ", startSegment, false);
+			printRoad("Initial segment end: ", endSegment, false);
 		}
 	}
 
@@ -712,7 +783,7 @@ public class BinaryRoutePlanner {
 	}
 
 
-	private RouteSegment processIntersections(RoutingContext ctx, PriorityQueue<RouteSegment> graphSegments,
+	synchronized private RouteSegment processIntersections(RoutingContext ctx, PriorityQueue<RouteSegment> graphSegments,
 			TLongObjectHashMap<RouteSegment> visitedSegments,  float distFromStart, RouteSegment segment,
 			short segmentPoint, RouteSegment inputNext, boolean reverseWaySearch, boolean doNotAddIntersections, 
 			boolean[] processFurther) {
