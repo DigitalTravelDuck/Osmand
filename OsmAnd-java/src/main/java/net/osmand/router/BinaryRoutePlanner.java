@@ -12,6 +12,7 @@ import java.util.PriorityQueue;
 import net.osmand.PlatformUtil;
 import net.osmand.binary.RouteDataObject;
 import net.osmand.osm.MapRenderingTypes;
+import net.osmand.util.ElapsedTimer;
 import net.osmand.util.MapUtils;
 
 import org.apache.commons.logging.Log;
@@ -29,7 +30,23 @@ public class BinaryRoutePlanner {
 
 	private static final int ROUTE_POINTS = 11;
 	private static final boolean TRACE_ROUTING = false;
-
+	
+	private int counter1;
+	private int counter2;
+	private int counter3;
+	private int counter4;
+	private int counter6;
+	private int counter7;
+	
+	ElapsedTimer timer1 = new ElapsedTimer();
+	ElapsedTimer timer2 = new ElapsedTimer();
+	ElapsedTimer timer3 = new ElapsedTimer();
+	ElapsedTimer timer4 = new ElapsedTimer();
+	ElapsedTimer timer5 = new ElapsedTimer();  
+	ElapsedTimer timer6 = new ElapsedTimer(); 
+	ElapsedTimer timer7 = new ElapsedTimer(); 
+	ElapsedTimer timer8 = new ElapsedTimer(); 
+	ElapsedTimer timer9 = new ElapsedTimer(); 
 
 	public static double squareRootDist(int x1, int y1, int x2, int y2) {
 		return MapUtils.squareRootDist31(x1, y1, x2, y2);
@@ -72,6 +89,22 @@ public class BinaryRoutePlanner {
 		ctx.memoryOverhead = 1000;
 		ctx.visitedSegments = 0;
 
+		timer1.enable();
+		timer2.enable();
+		timer3.enable();
+		timer4.enable();
+		timer5.enable();
+		timer6.enable();
+		timer7.enable();
+		timer8.enable();
+		timer9.enable();
+		counter1 = 0;
+		counter2 = 0;
+		counter3 = 0;
+		counter4 = 0;
+		counter6 = 0;
+		counter7 = 0;
+		
 		// Initializing priority queue to visit way segments 
 		Comparator<RouteSegment> nonHeuristicSegmentsComparator = new NonHeuristicSegmentsComparator();
 		PriorityQueue<RouteSegment> graphDirectSegments = new PriorityQueue<RouteSegment>(50, new SegmentsComparator(ctx));
@@ -81,8 +114,7 @@ public class BinaryRoutePlanner {
 		TLongObjectHashMap<RouteSegment> visitedDirectSegments = new TLongObjectHashMap<RouteSegment>();
 		TLongObjectHashMap<RouteSegment> visitedOppositeSegments = new TLongObjectHashMap<RouteSegment>();
 
-		initQueuesWithStartEnd(ctx, start, end, recalculationEnd, graphDirectSegments, graphReverseSegments, 
-				visitedDirectSegments, visitedOppositeSegments);
+		initQueuesWithStartEnd(ctx, start, end, recalculationEnd, graphDirectSegments, graphReverseSegments);
 
 		// Extract & analyze segment with min(f(x)) from queue while final segment is not found
 		boolean forwardSearch = true;
@@ -241,8 +273,7 @@ public class BinaryRoutePlanner {
 
 
 	private void initQueuesWithStartEnd(final RoutingContext ctx, RouteSegment start, RouteSegment end,
-			RouteSegment recalculationEnd, PriorityQueue<RouteSegment> graphDirectSegments, PriorityQueue<RouteSegment> graphReverseSegments, 
-			TLongObjectHashMap<RouteSegment> visitedDirectSegments, TLongObjectHashMap<RouteSegment> visitedOppositeSegments) {
+			RouteSegment recalculationEnd, PriorityQueue<RouteSegment> graphDirectSegments, PriorityQueue<RouteSegment> graphReverseSegments) {
 		RouteSegment startPos = initRouteSegment(ctx, start, true);
 		RouteSegment startNeg = initRouteSegment(ctx, start, false);
 		RouteSegment endPos = initRouteSegment(ctx, end, true);
@@ -377,7 +408,17 @@ public class BinaryRoutePlanner {
 		printInfo("Loaded tiles " + ctx.loadedTiles + " (distinct " + ctx.distinctLoadedTiles + "), unloaded tiles " + ctx.unloadedTiles +
 				", loaded more than once same tiles "
 				+ ctx.loadedPrevUnloadedTiles);
-		printInfo("Visited segments " + ctx.visitedSegments + ", relaxed roads " + ctx.relaxedSegments);
+		printInfo("Visited segments " + ctx.visitedSegments + ", visited direct/reverse segmenst: " + visitedDirectSegments.size() + "/" + visitedOppositeSegments.size());
+		printInfo(String.format(">>> Timer1 (loadRouteSegment) : %f, call count: %d, ms/call: %f", ctx.loadSegmentExludeLoadTileTimer.getElapsedMicros(), counter1, timer1.getElapsedMicros()/counter1/1000.0));
+		printInfo(String.format(">>> Timer2 (calculateTimeWithObstacles) : %f, call count: %d, ms/call: %f", timer2.getElapsedMicros(), counter1, timer2.getElapsedMicros()/counter1/1000.0));
+		printInfo(String.format(">>> Timer3 (processIntersections) : %f, call count: %d, ms/call: %f", timer3.getElapsedMicros(), counter1, timer3.getElapsedMicros()/counter2/1000.0));
+		printInfo(String.format(">>> Timer4 (ctx.getRouter().defineSpeedPriority(road)) time: %f", timer4.getElapsedMicros()));
+		printInfo(String.format(">>> Timer5 (defineRoutingSpeed) time: %f", timer5.getElapsedMicros()));
+		printInfo(String.format(">>> Timer6 (proccessRestrictions) time / count: %f / %d", timer6.getElapsedMicros(), counter6));
+		printInfo(String.format(">>> Timer7 (ifThereAreRestrictions) call /count: %f / %d", timer7.getElapsedMicros(), counter7));
+		printInfo(String.format(">>> Timer8 (processOneRoadIntersection) time: %f, count %d", timer8.getElapsedMicros(), counter3+counter4));
+		printInfo(String.format(">>> Timer9 (processOneRoadIntersection - obstaclesTime) timer: %f", timer9.getElapsedMicros()));
+		
 		if (graphDirectSegments != null && graphReverseSegments != null) {
 			printInfo("Priority queues sizes : " + graphDirectSegments.size() + "/" + graphReverseSegments.size());
 		}
@@ -414,6 +455,7 @@ public class BinaryRoutePlanner {
 		RouteSegment previous = segment;
 		boolean dir = segment.isPositive();
 		while (directionAllowed) {
+			counter1++;
 			// mark previous interval as visited and move to next intersection
 			short prevInd = segmentPoint;
 			if (dir) {
@@ -473,18 +515,25 @@ public class BinaryRoutePlanner {
 			}
 			// could be expensive calculation
 			// 3. get intersected ways
+			timer1.start();
 			final RouteSegment roadNext = ctx.loadRouteSegment(x, y, ctx.config.memoryLimitation - ctx.memoryOverhead);
+			timer1.pause();
+			timer2.start();
 			float distStartObstacles = segment.distanceFromStart + calculateTimeWithObstacles(ctx, road, segmentDist, obstaclesTime);
+			timer2.pause();
 			if (ctx.precalculatedRouteDirection != null && ctx.precalculatedRouteDirection.isFollowNext()) {
 				// reset to f
 //				distStartObstacles = 0;
-				// more precise but slower
+				// more precise but slower			
 				distStartObstacles = ctx.precalculatedRouteDirection.getDeviationDistance(x, y) / ctx.getRouter().getMaxSpeed();
+				
 			}
 
 			// We don't check if there are outgoing connections
+			timer3.start();
 			previous = processIntersections(ctx, graphSegments, visitedSegments, distStartObstacles,
 					segment, segmentPoint, roadNext, reverseWaySearch, doNotAddIntersections, processFurther);
+			timer3.pause();
 			if (!processFurther[0]) {
 				directionAllowed = false;
 				continue;
@@ -580,8 +629,12 @@ public class BinaryRoutePlanner {
 
 
 	private float calculateTimeWithObstacles(RoutingContext ctx, RouteDataObject road, float distOnRoadToPass, float obstaclesTime) {
+		timer4.start();
 		float priority = ctx.getRouter().defineSpeedPriority(road);
+		timer4.pause();
+		timer5.start();
 		float speed = (ctx.getRouter().defineRoutingSpeed(road) * priority);
+		timer5.pause();
 		if (speed == 0) {
 			speed = (ctx.getRouter().getDefaultSpeed() * priority);
 		}
@@ -723,7 +776,10 @@ public class BinaryRoutePlanner {
 		if (inputNext != null && inputNext.getRoad().getId() == segment.getRoad().getId() && inputNext.next == null) {
 			thereAreRestrictions = false;
 		} else {
+			timer6.start();
 			thereAreRestrictions = proccessRestrictions(ctx, segment, inputNext, reverseWaySearch);
+			counter6++;
+			timer6.pause();
 			if (thereAreRestrictions) {
 				nextIterator = ctx.segmentsToVisitPrescripted.iterator();
 				if (TRACE_ROUTING) {
@@ -786,10 +842,13 @@ public class BinaryRoutePlanner {
 	private void processOneRoadIntersection(RoutingContext ctx, PriorityQueue<RouteSegment> graphSegments,
 			TLongObjectHashMap<RouteSegment> visitedSegments, float distFromStart, float distanceToEnd,  RouteSegment segment,
 			int segmentPoint, RouteSegment next) {
+		timer8.start();
 		if (next != null) {
+			timer9.start();
 			float obstaclesTime = (float) ctx.getRouter().calculateTurnTime(next, next.isPositive()? 
 					next.getRoad().getPointsLength() - 1 : 0,  
 					segment, segmentPoint);
+			timer9.pause();
 			distFromStart += obstaclesTime;
 			if (TEST_SPECIFIC && next.road.getId() >> 6 == TEST_ID) {
 				printRoad(" !? distFromStart=" +distFromStart + " from " + segment.getRoad().getId() +
@@ -809,9 +868,11 @@ public class BinaryRoutePlanner {
 					// put additional information to recover whole route after
 					next.setParentRoute(segment);
 					next.setParentSegmentEnd(segmentPoint);
+					counter3++;
 					graphSegments.add(next);
 				}
 			} else {
+				counter4++;
 				// the segment was already visited! We need to follow better route if it exists
 				// that is very exceptional situation and almost exception, it can happen 
 				// 1. when we underestimate distnceToEnd - wrong h()
@@ -833,6 +894,7 @@ public class BinaryRoutePlanner {
 				}
 			}
 		}
+		timer8.pause();
 	}
 	
 

@@ -32,9 +32,12 @@ import net.osmand.router.BinaryRoutePlanner.FinalRouteSegment;
 import net.osmand.router.BinaryRoutePlanner.RouteSegment;
 import net.osmand.router.BinaryRoutePlanner.RouteSegmentVisitor;
 import net.osmand.router.RoutePlannerFrontEnd.RouteCalculationMode;
+import net.osmand.util.ElapsedTimer;
 
 
 public class RoutingContext {
+	
+	public ElapsedTimer loadSegmentExludeLoadTileTimer = new ElapsedTimer();
 
 	public static final boolean SHOW_GC_SIZE = false;
 	 
@@ -43,7 +46,8 @@ public class RoutingContext {
 	public static final int OPTION_NO_LOAD = 0;
 	public static final int OPTION_SMART_LOAD = 1;
 	public static final int OPTION_IN_MEMORY_LOAD = 2;
-
+	
+	
 
 	
 	// Final context variables
@@ -104,7 +108,7 @@ public class RoutingContext {
 	public int relaxedSegments = 0;
 	// callback of processing segments
 	RouteSegmentVisitor visitor = null;
-
+	
 	// old planner
 	public FinalRouteSegment finalRouteSegment;
 
@@ -272,6 +276,7 @@ public class RoutingContext {
 
 	public RouteSegment loadRouteSegment(int x31, int y31, int memoryLimit) {
 		long tileId = getRoutingTile(x31, y31, memoryLimit, OPTION_SMART_LOAD);
+		loadSegmentExludeLoadTileTimer.start();
 		TLongObjectHashMap<RouteDataObject> excludeDuplications = new TLongObjectHashMap<RouteDataObject>();
 		RouteSegment original = null;
 		if (tileRoutes.containsKey(tileId)) {
@@ -299,6 +304,7 @@ public class RoutingContext {
 				original = rs.loadRouteSegment(x31, y31, this, excludeDuplications, original);
 			}
 		}
+		loadSegmentExludeLoadTileTimer.pause();
 		return original;
 	}
 	
