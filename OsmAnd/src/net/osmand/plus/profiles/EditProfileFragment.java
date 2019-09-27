@@ -1,15 +1,5 @@
 package net.osmand.plus.profiles;
 
-import static net.osmand.plus.activities.SettingsNavigationActivity.INTENT_SKIP_DIALOG;
-import static net.osmand.plus.profiles.SelectProfileBottomSheetDialogFragment.DIALOG_TYPE;
-import static net.osmand.plus.profiles.SelectProfileBottomSheetDialogFragment.SELECTED_KEY;
-import static net.osmand.plus.profiles.SelectProfileBottomSheetDialogFragment.TYPE_BASE_APP_PROFILE;
-import static net.osmand.plus.profiles.SelectProfileBottomSheetDialogFragment.TYPE_ICON;
-import static net.osmand.plus.profiles.SelectProfileBottomSheetDialogFragment.TYPE_NAV_PROFILE;
-import static net.osmand.plus.profiles.SettingsProfileFragment.IS_NEW_PROFILE;
-import static net.osmand.plus.profiles.SettingsProfileFragment.IS_USER_PROFILE;
-import static net.osmand.plus.profiles.SettingsProfileFragment.PROFILE_STRING_KEY;
-
 import android.app.Activity;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -22,17 +12,20 @@ import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.v7.app.ActionBar;
+import android.support.design.widget.AppBarLayout;
+import android.support.v4.app.FragmentActivity;
+import android.support.v4.app.FragmentManager;
+import android.support.v4.view.ViewCompat;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AlertDialog.Builder;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.view.ContextThemeWrapper;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.ViewGroup;
-
 import android.view.ViewTreeObserver.OnGlobalLayoutListener;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.AdapterView;
@@ -46,10 +39,7 @@ import android.widget.ListPopupWindow;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
+
 import net.osmand.AndroidUtils;
 import net.osmand.PlatformUtil;
 import net.osmand.plus.ApplicationMode;
@@ -57,20 +47,39 @@ import net.osmand.plus.ApplicationMode.ProfileIconColors;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.R;
 import net.osmand.plus.activities.MapActivity;
-import net.osmand.plus.activities.OsmandActionBarActivity;
 import net.osmand.plus.activities.SettingsNavigationActivity;
 import net.osmand.plus.base.BaseOsmAndFragment;
+import net.osmand.plus.helpers.AndroidUiHelper;
 import net.osmand.plus.profiles.SelectProfileBottomSheetDialogFragment.SelectProfileListener;
 import net.osmand.plus.routing.RouteProvider.RouteService;
 import net.osmand.plus.widgets.OsmandTextFieldBoxes;
 import net.osmand.router.GeneralRouter;
 import net.osmand.util.Algorithms;
+
 import org.apache.commons.logging.Log;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+
 import studio.carbonylgroup.textfieldboxes.ExtendedEditText;
+
+import static net.osmand.plus.activities.SettingsNavigationActivity.INTENT_SKIP_DIALOG;
+import static net.osmand.plus.profiles.SelectProfileBottomSheetDialogFragment.DIALOG_TYPE;
+import static net.osmand.plus.profiles.SelectProfileBottomSheetDialogFragment.SELECTED_KEY;
+import static net.osmand.plus.profiles.SelectProfileBottomSheetDialogFragment.TYPE_BASE_APP_PROFILE;
+import static net.osmand.plus.profiles.SelectProfileBottomSheetDialogFragment.TYPE_ICON;
+import static net.osmand.plus.profiles.SelectProfileBottomSheetDialogFragment.TYPE_NAV_PROFILE;
+import static net.osmand.plus.profiles.SettingsProfileFragment.IS_NEW_PROFILE;
+import static net.osmand.plus.profiles.SettingsProfileFragment.IS_USER_PROFILE;
+import static net.osmand.plus.profiles.SettingsProfileFragment.PROFILE_STRING_KEY;
 
 public class EditProfileFragment extends BaseOsmAndFragment {
 
 	private static final Log LOG = PlatformUtil.getLog(EditProfileFragment.class);
+
+	public static final String TAG = "EditProfileFragment";
 
 	public static final String OPEN_CONFIG_ON_MAP = "openConfigOnMap";
 	public static final String MAP_CONFIG = "openMapConfigMenu";
@@ -96,29 +105,17 @@ public class EditProfileFragment extends BaseOsmAndFragment {
 	private SelectProfileListener iconIdListener = null;
 	private SelectProfileListener baseTypeListener = null;
 
+	private TextView toolbarTitle;
 	private ImageView profileIcon;
-	private LinearLayout profileIconBtn;
 	private ImageView colorSample;
 	private LinearLayout selectColorBtn;
 	private ExtendedEditText profileNameEt;
-	private OsmandTextFieldBoxes profileNameTextBox;
 	private ExtendedEditText navTypeEt;
-	private OsmandTextFieldBoxes navTypeTextBox;
-	private FrameLayout selectNavTypeBtn;
-	private Button cancelBtn;
-	private Button saveButton;
-	private View mapConfigBtn;
-	private View screenConfigBtn;
-	private View navConfigBtn;
 	private LinearLayout buttonsLayout;
-	private FrameLayout clickBlockLayout;
-	private LinearLayout typeSelectionBtn;
 	private ImageView baseModeIcon;
 	private TextView baseModeTitle;
 	private ScrollView scrollContainer;
 	private LinearLayout buttonsLayoutSV;
-	private Button cancelBtnSV;
-	private Button saveButtonSV;
 
 	@Override
 	public void onCreate(@Nullable Bundle savedInstanceState) {
@@ -138,38 +135,44 @@ public class EditProfileFragment extends BaseOsmAndFragment {
 	@Nullable
 	@Override
 	public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
-		@Nullable Bundle savedInstanceState) {
-		final EditProfileActivity activity = (EditProfileActivity) getActivity();
-		final View view = inflater.inflate(R.layout.fragment_selected_profile, container, false);
+	                         @Nullable Bundle savedInstanceState) {
+		final FragmentActivity activity = getActivity();
+
+		int themeRes = nightMode ? R.style.OsmandDarkTheme : R.style.OsmandLightTheme;
+		Context themedContext = new ContextThemeWrapper(getContext(), themeRes);
+		final View view = inflater.cloneInContext(themedContext).inflate(R.layout.fragment_selected_profile, container, false);
+
+		setupToolbar(view);
 
 		profileIcon = view.findViewById(R.id.profile_icon_img);
-		profileIconBtn = view.findViewById(R.id.select_icon_button);
+		LinearLayout profileIconBtn = view.findViewById(R.id.select_icon_button);
 		colorSample = view.findViewById(R.id.color_sample_img);
 		selectColorBtn = view.findViewById(R.id.select_icon_color_button);
 		profileNameEt = view.findViewById(R.id.profile_name_et);
-		profileNameTextBox = view.findViewById(R.id.profile_name_otfb);
+		OsmandTextFieldBoxes profileNameTextBox = view.findViewById(R.id.profile_name_otfb);
 		navTypeEt = view.findViewById(R.id.navigation_type_et);
-		navTypeTextBox = view.findViewById(R.id.navigation_type_otfb);
-		selectNavTypeBtn = view.findViewById(R.id.select_nav_type_btn);
-		cancelBtn = view.findViewById(R.id.cancel_button);
-		saveButton = view.findViewById(R.id.save_profile_btn);
-		mapConfigBtn = view.findViewById(R.id.map_config_btn);
-		screenConfigBtn = view.findViewById(R.id.screen_config_btn);
-		navConfigBtn = view.findViewById(R.id.nav_settings_btn);
+		OsmandTextFieldBoxes navTypeTextBox = view.findViewById(R.id.navigation_type_otfb);
+		FrameLayout selectNavTypeBtn = view.findViewById(R.id.select_nav_type_btn);
+		Button cancelBtn = view.findViewById(R.id.cancel_button);
+		Button saveButton = view.findViewById(R.id.save_profile_btn);
+		View mapConfigBtn = view.findViewById(R.id.map_config_btn);
+		View screenConfigBtn = view.findViewById(R.id.screen_config_btn);
+		View navConfigBtn = view.findViewById(R.id.nav_settings_btn);
 		buttonsLayout = view.findViewById(R.id.buttons_layout);
-		clickBlockLayout = view.findViewById(R.id.click_block_layout);
-		typeSelectionBtn = view.findViewById(R.id.type_selection_button);
+		FrameLayout clickBlockLayout = view.findViewById(R.id.click_block_layout);
+		LinearLayout typeSelectionBtn = view.findViewById(R.id.type_selection_button);
 		baseModeIcon = view.findViewById(R.id.mode_icon);
 		baseModeTitle = view.findViewById(R.id.mode_title);
 		scrollContainer = view.findViewById(R.id.scroll_view_container);
 		buttonsLayoutSV = view.findViewById(R.id.buttons_layout_sv);
-		cancelBtnSV = view.findViewById(R.id.cancel_button_sv);
-		saveButtonSV = view.findViewById(R.id.save_profile_btn_sv);
+		Button cancelBtnSV = view.findViewById(R.id.cancel_button_sv);
+		Button saveButtonSV = view.findViewById(R.id.save_profile_btn_sv);
+		toolbarTitle = view.findViewById(R.id.toolbar_title);
 
 		profileNameEt.setFocusable(true);
 		profileNameTextBox.getEditText().setSelection(profileNameEt.getText().length());
 
-		String title = getResources().getString(R.string.new_profile);
+		String title = getString(R.string.new_profile);
 
 		int startIconId = profile.iconId;
 
@@ -183,7 +186,7 @@ public class EditProfileFragment extends BaseOsmAndFragment {
 			profileNameEt.setText(title);
 			isDataChanged = false;
 		} else if (profile.stringKeyName != -1) {
-			title = getResources().getString(profile.stringKeyName);
+			title = getString(profile.stringKeyName);
 			profileNameEt.setText(title);
 			clickBlockLayout.setClickable(true);
 		}
@@ -242,11 +245,7 @@ public class EditProfileFragment extends BaseOsmAndFragment {
 		}
 		profileNameEt.clearFocus();
 
-		if (getActivity() != null
-			&& ((EditProfileActivity) getActivity()).getSupportActionBar() != null) {
-			((EditProfileActivity) getActivity()).getSupportActionBar().setTitle(title);
-			((EditProfileActivity) getActivity()).getSupportActionBar().setElevation(5.0f);
-		}
+		updateToolbar(title);
 
 		int iconColor = profile.iconColor.getColor(nightMode);
 
@@ -264,15 +263,10 @@ public class EditProfileFragment extends BaseOsmAndFragment {
 
 			@Override
 			public void afterTextChanged(Editable s) {
-				if (getActivity() instanceof OsmandActionBarActivity) {
-					ActionBar actionBar = ((OsmandActionBarActivity) getActivity())
-						.getSupportActionBar();
-					if (actionBar != null) {
-						actionBar.setTitle(s.toString());
-						profile.userProfileTitle = s.toString();
-						isCancelAllowed = false;
-					}
-				}
+				profile.userProfileTitle = s.toString();
+				isCancelAllowed = false;
+
+				updateToolbar(s.toString());
 			}
 		});
 
@@ -370,6 +364,10 @@ public class EditProfileFragment extends BaseOsmAndFragment {
 					i.putExtra(OPEN_CONFIG_ON_MAP, MAP_CONFIG);
 					i.putExtra(SELECTED_ITEM, profile.stringKey);
 					startActivity(i);
+
+					if (activity instanceof EditProfileActivity) {
+						dismiss();
+					}
 				}
 			}
 		});
@@ -386,6 +384,10 @@ public class EditProfileFragment extends BaseOsmAndFragment {
 					i.putExtra(OPEN_CONFIG_ON_MAP, SCREEN_CONFIG);
 					i.putExtra(SELECTED_ITEM, profile.stringKey);
 					startActivity(i);
+
+					if (activity instanceof EditProfileActivity) {
+						dismiss();
+					}
 				}
 			}
 		});
@@ -403,6 +405,10 @@ public class EditProfileFragment extends BaseOsmAndFragment {
 					i.putExtra(OPEN_CONFIG_ON_MAP, NAV_CONFIG);
 					i.putExtra(SELECTED_ITEM, profile.stringKey);
 					startActivity(i);
+
+					if (activity instanceof EditProfileActivity) {
+						dismiss();
+					}
 				}
 			}
 		});
@@ -450,13 +456,13 @@ public class EditProfileFragment extends BaseOsmAndFragment {
 			});
 		}
 
+		final float density = getResources().getDisplayMetrics().density;
 		view.getViewTreeObserver().addOnGlobalLayoutListener(new OnGlobalLayoutListener() {
 			@Override
 			public void onGlobalLayout() {
 				int marginShow = 66;
 				int marginHide = 0;
 
-				float d = getResources().getDisplayMetrics().density;
 				Rect r = new Rect();
 				view.getWindowVisibleDisplayFrame(r);
 				int screenHeight = view.getRootView().getHeight();
@@ -464,11 +470,11 @@ public class EditProfileFragment extends BaseOsmAndFragment {
 				if (keypadHeight > screenHeight * 0.15) {
 					buttonsLayout.setVisibility(View.GONE);
 					buttonsLayoutSV.setVisibility(View.VISIBLE);
-					setMargins(scrollContainer, 0, 0, 0, (int) (marginHide * d));
+					setMargins(scrollContainer, 0, 0, 0, (int) (marginHide * density));
 				} else {
 					buttonsLayoutSV.setVisibility(View.GONE);
 					buttonsLayout.setVisibility(View.VISIBLE);
-					setMargins(scrollContainer, 0, 0, 0, (int) (marginShow * d));
+					setMargins(scrollContainer, 0, 0, 0, (int) (marginShow * density));
 				}
 			}
 		});
@@ -483,7 +489,7 @@ public class EditProfileFragment extends BaseOsmAndFragment {
 		super.onResume();
 	}
 
-	boolean onBackPressedAllowed() {
+	public boolean onBackPressedAllowed() {
 		return isCancelAllowed;
 	}
 
@@ -564,6 +570,45 @@ public class EditProfileFragment extends BaseOsmAndFragment {
 	void activateMode(ApplicationMode mode) {
 		if (!ApplicationMode.values(app).contains(mode)) {
 			ApplicationMode.changeProfileAvailability(mode, true, getMyApplication());
+		}
+	}
+
+	private void setupToolbar(View view) {
+		FragmentActivity activity = getActivity();
+		AppBarLayout appBar = (AppBarLayout) view.findViewById(R.id.appbar);
+
+		if ((activity instanceof EditProfileActivity)) {
+			EditProfileActivity editProfileActivity = (EditProfileActivity) activity;
+			if (editProfileActivity.getSupportActionBar() != null) {
+				editProfileActivity.getSupportActionBar().setElevation(5.0f);
+			}
+			AndroidUiHelper.updateVisibility(appBar, false);
+		} else {
+			AndroidUtils.addStatusBarPadding21v(activity, view);
+			ViewCompat.setElevation(appBar, 5.0f);
+
+			View closeButton = view.findViewById(R.id.close_button);
+			closeButton.setOnClickListener(new View.OnClickListener() {
+				@Override
+				public void onClick(View v) {
+					FragmentActivity fragmentActivity = getActivity();
+					if (fragmentActivity != null) {
+						fragmentActivity.onBackPressed();
+					}
+				}
+			});
+		}
+	}
+
+	private void updateToolbar(String title) {
+		FragmentActivity activity = getActivity();
+		if (activity instanceof EditProfileActivity) {
+			EditProfileActivity editProfileActivity = (EditProfileActivity) activity;
+			if (editProfileActivity.getSupportActionBar() != null) {
+				editProfileActivity.getSupportActionBar().setTitle(title);
+			}
+		} else {
+			toolbarTitle.setText(title);
 		}
 	}
 
@@ -671,7 +716,7 @@ public class EditProfileFragment extends BaseOsmAndFragment {
 		bld.show();
 	}
 
-	void confirmCancelDialog(final Activity activity) {
+	public void confirmCancelDialog(final Activity activity) {
 		AlertDialog.Builder bld = new Builder(activity);
 		bld.setTitle(R.string.shared_string_dismiss);
 		bld.setMessage(R.string.exit_without_saving);
@@ -723,6 +768,39 @@ public class EditProfileFragment extends BaseOsmAndFragment {
 			if (imm != null) {
 				imm.hideSoftInputFromWindow(cf.getWindowToken(), 0);
 			}
+		}
+	}
+
+	public void dismiss() {
+		try {
+			FragmentActivity activity = getActivity();
+			if (activity != null) {
+				activity.getSupportFragmentManager()
+						.beginTransaction()
+						.remove(this).commitAllowingStateLoss();
+			}
+		} catch (Exception e) {
+			LOG.error(e);
+		}
+	}
+
+	public static boolean showInstance(FragmentManager fragmentManager, boolean newProfile, boolean userProfile, String profileKey) {
+		try {
+			Bundle args = new Bundle();
+			args.putBoolean(IS_NEW_PROFILE, newProfile);
+			args.putBoolean(IS_USER_PROFILE, userProfile);
+			args.putString(PROFILE_STRING_KEY, profileKey);
+
+			EditProfileFragment editProfileFragment = new EditProfileFragment();
+			editProfileFragment.setArguments(args);
+
+			fragmentManager.beginTransaction()
+					.replace(R.id.fragmentContainer, editProfileFragment, TAG)
+					.addToBackStack(TAG)
+					.commit();
+			return true;
+		} catch (Exception e) {
+			return false;
 		}
 	}
 

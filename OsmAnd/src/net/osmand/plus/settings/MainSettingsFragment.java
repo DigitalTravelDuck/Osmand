@@ -1,10 +1,10 @@
 package net.osmand.plus.settings;
 
-import android.content.Intent;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.LayerDrawable;
 import android.os.Build;
 import android.support.annotation.ColorRes;
+import android.support.v4.app.FragmentActivity;
 import android.support.v4.app.FragmentManager;
 import android.support.v7.preference.Preference;
 import android.support.v7.preference.PreferenceViewHolder;
@@ -14,13 +14,14 @@ import net.osmand.AndroidUtils;
 import net.osmand.plus.ApplicationMode;
 import net.osmand.plus.R;
 import net.osmand.plus.UiUtilities;
-import net.osmand.plus.profiles.SettingsProfileActivity;
+import net.osmand.plus.profiles.SettingsProfileFragment;
 
 public class MainSettingsFragment extends BaseSettingsFragment {
 
 	public static final String TAG = MainSettingsFragment.class.getSimpleName();
 
 	private static final String CONFIGURE_PROFILE = "configure_profile";
+	private static final String MANAGE_PROFILES = "manage_profiles";
 
 	@Override
 	protected String getFragmentTag() {
@@ -87,9 +88,8 @@ public class MainSettingsFragment extends BaseSettingsFragment {
 	}
 
 	private void setupManageProfilesPref() {
-		Preference manageProfiles = findPreference("manage_profiles");
+		Preference manageProfiles = findPreference(MANAGE_PROFILES);
 		manageProfiles.setIcon(getIcon(R.drawable.ic_action_manage_profiles));
-		manageProfiles.setIntent(new Intent(getActivity(), SettingsProfileActivity.class));
 	}
 
 	private void setupConfigureProfilePref() {
@@ -103,6 +103,22 @@ public class MainSettingsFragment extends BaseSettingsFragment {
 		configureProfile.setIcon(getPaintedIcon(iconRes, getActiveProfileColor()));
 		configureProfile.setTitle(title);
 		configureProfile.setSummary(profileType);
+	}
+
+	@Override
+	public boolean onPreferenceClick(Preference preference) {
+		if (MANAGE_PROFILES.equals(preference.getKey())) {
+			FragmentActivity activity = getActivity();
+			if (activity != null) {
+				FragmentManager fragmentManager = activity.getSupportFragmentManager();
+				if (fragmentManager != null) {
+					SettingsProfileFragment.showInstance(fragmentManager);
+					return true;
+				}
+			}
+		}
+
+		return super.onPreferenceClick(preference);
 	}
 
 	public static boolean showInstance(FragmentManager fragmentManager) {

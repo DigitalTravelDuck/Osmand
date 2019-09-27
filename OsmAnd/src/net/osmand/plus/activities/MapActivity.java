@@ -639,6 +639,13 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 			chooseRouteFragment.dismiss(true);
 			return;
 		}
+		EditProfileFragment editProfileFragment = getEditProfileFragment();
+		if (editProfileFragment != null) {
+			if (!editProfileFragment.onBackPressedAllowed()) {
+				editProfileFragment.confirmCancelDialog(this);
+				return;
+			}
+		}
 		if (mapContextMenu.isVisible() && mapContextMenu.isClosable()) {
 			if (mapContextMenu.getCurrentMenuState() != MenuState.HEADER_ONLY) {
 				mapContextMenu.openMenuHeaderOnly();
@@ -2230,6 +2237,11 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 	public ChooseRouteFragment getChooseRouteFragment() {
 		Fragment fragment = getSupportFragmentManager().findFragmentByTag(ChooseRouteFragment.TAG);
 		return fragment != null && !fragment.isDetached() && !fragment.isRemoving() ? (ChooseRouteFragment) fragment : null;
+	}
+
+	public EditProfileFragment getEditProfileFragment() {
+		Fragment fragment = getSupportFragmentManager().findFragmentByTag(EditProfileFragment.TAG);
+		return fragment != null && !fragment.isDetached() && !fragment.isRemoving() ? (EditProfileFragment) fragment : null;
 	}
 
 	public boolean isTopToolbarActive() {
