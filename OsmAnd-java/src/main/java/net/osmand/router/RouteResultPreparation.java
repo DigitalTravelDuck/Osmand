@@ -1745,9 +1745,11 @@ public class RouteResultPreparation {
 		// try to attach all segments except with current id
 		while (it != null && it.hasNext()) {
 			RouteSegment routeSegment = it.next();
-			if (routeSegment.road.getId() != road.getId() && routeSegment.road.getId() != previousRoadId) {
+			if (routeSegment.road.getId() != road.getId() && routeSegment.road.getId() != previousRoadId 
+					&& (routeSegment.road.getId() >> 6) != (road.getId() >> 6)) {
 				RouteDataObject addRoad = routeSegment.road;
 				checkAndInitRouteRegion(ctx, addRoad);
+				
 				// TODO restrictions can be considered as well
 				int oneWay = ctx.getRouter().isOneWay(addRoad);
 				if (oneWay >= 0 && routeSegment.getSegmentStart() < addRoad.getPointsLength() - 1) {
@@ -1766,6 +1768,11 @@ public class RouteResultPreparation {
 				}
 			}
 		}
+	}
+	
+	private boolean compareRoutesPoints(RouteDataObject segmentBase, RouteDataObject segmentToCompare) {
+//		if (segmentBase.)
+		return false;
 	}
 	
 	private static void println(String logMsg) {
